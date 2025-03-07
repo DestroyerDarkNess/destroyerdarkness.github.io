@@ -1,25 +1,44 @@
 <!DOCTYPE html>
-<html lang="en" style="height:100%;">
-  <head>
-    <meta charset="utf-8">
-    <title>CheerpX Hello World</title>
-    <script src="https://cheerpxdemos.leaningtech.com/publicdeploy/cx.js"></script>
-  </head>
-  <body style="margin:0;height:100%;">
-    <pre id="console" style="width:100%;height:100%;margin:0;">
-    </pre>
-    <script>
-      async function cxReady(cx)
-      {
-        cx.setConsole(document.getElementById("console"));
-        cx.run("/hello", []);
-      }
-      function cxFailed(e)
-      {
-         console.log("CheerpX could not start. Reason: "+e);
-      }
-      CheerpXApp.create().then(cxReady, cxFailed);
-    </script>
-  </body>
-</html>
+<html lang="en" style="height: 100%;">
+<head>
+    <meta charset="utf-8" />
+    <!-- Headers para desarrollo local -->
+    <meta http-equiv="Cross-Origin-Embedder-Policy" content="require-corp">
+    <meta http-equiv="Cross-Origin-Opener-Policy" content="same-origin">
+    <title>CheerpX Getting Started</title>
+    <script src="https://cxrtnc.leaningtech.com/1.0.8/cx.js"></script>
+</head>
+<body style="height: 100%; background: black;">
+    <pre id="console" style="height: 100%;"></pre>
 
+    <script type="module">
+        async function initCheerpX() {
+            try {
+                const cloudDevice = await CheerpX.CloudDevice.create(
+                    "wss://disks.webvm.io/debian_large_20230522_5044875331.ext2"
+                );
+                const idbDevice = await CheerpX.IDBDevice.create("block1");
+                const overlayDevice = await CheerpX.OverlayDevice.create(cloudDevice, idbDevice);
+                const webDevice = await CheerpX.WebDevice.create("");
+                const dataDevice = await CheerpX.DataDevice.create();
+
+                const cx = await CheerpX.Linux.create({
+                    mounts: [
+                        { type: "ext2", path: "/", dev: overlayDevice },
+                        { type: "dir", path: "/app", dev: webDevice },
+                        { type: "dir", path: "/data", dev: dataDevice },
+                        { type: "devs", path: "/dev" },
+                    ],
+                });
+
+                cx.setConsole(document.getElementById('console'));
+                await cx.run('/bin/bash', ['-i']);
+                
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+        initCheerpX();
+    </script>
+</body>
+</html>
