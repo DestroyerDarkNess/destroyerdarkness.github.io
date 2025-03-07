@@ -1,44 +1,178 @@
 <!DOCTYPE html>
-<html lang="en" style="height: 100%;">
+<html lang="en">
 <head>
-    <meta charset="utf-8" />
-    <!-- Headers para desarrollo local -->
+    <meta charset="UTF-8">
     <meta http-equiv="Cross-Origin-Embedder-Policy" content="require-corp">
     <meta http-equiv="Cross-Origin-Opener-Policy" content="same-origin">
-    <title>CheerpX Getting Started</title>
-    <script src="https://cxrtnc.leaningtech.com/1.0.8/cx.js"></script>
+    <title>CheerpX Browser Automation</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background: #1a1a1a;
+            color: #e0e0e0;
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        #browser-container {
+            display: grid;
+            grid-template-rows: auto 1fr;
+            height: calc(100vh - 60px);
+        }
+
+        #browser-canvas {
+            border: 2px solid #333;
+            background: white;
+            image-rendering: crisp-edges;
+        }
+
+        .controls {
+            background: #2d2d2d;
+            padding: 10px;
+            border-bottom: 1px solid #444;
+        }
+
+        #status {
+            height: 30px;
+            background: #333;
+            padding: 5px 15px;
+            font-family: monospace;
+        }
+    </style>
 </head>
-<body style="height: 100%; background: black;">
-    <pre id="console" style="height: 100%;"></pre>
+<body>
+    <div class="controls container-fluid">
+        <div class="row align-items-center g-2">
+            <div class="col-auto">
+                <button class="btn btn-sm btn-success" onclick="navigate()">▶️ Go</button>
+            </div>
+            <div class="col">
+                <input type="text" id="url" class="form-control form-control-sm" 
+                       placeholder="https://example.com" value="https://example.com">
+            </div>
+            <div class="col-auto">
+                <div class="btn-group">
+                    <button class="btn btn-sm btn-secondary" onclick="takeScreenshot()">📸 Capture</button>
+                    <button class="btn btn-sm btn-info" onclick="inspectDOM()">🔍 Inspect</button>
+                    <button class="btn btn-sm btn-danger" onclick="resetBrowser()">🔄 Reset</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="browser-container">
+        <canvas id="browser-canvas" width="1280" height="720"></canvas>
+    </div>
+
+    <div id="status"></div>
+
+    <script src="https://cxrtnc.leaningtech.com/1.0.8/cx.js"></script>
 
     <script type="module">
+        let cx;
+        const canvas = document.getElementById('browser-canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Configuración inicial de CheerpX
         async function initCheerpX() {
             try {
+                updateStatus('🚀 Initializing CheerpX environment...');
+                
                 const cloudDevice = await CheerpX.CloudDevice.create(
                     "wss://disks.webvm.io/debian_large_20230522_5044875331.ext2"
                 );
-                const idbDevice = await CheerpX.IDBDevice.create("block1");
+                const idbDevice = await CheerpX.IDBDevice.create("browser-storage");
                 const overlayDevice = await CheerpX.OverlayDevice.create(cloudDevice, idbDevice);
-                const webDevice = await CheerpX.WebDevice.create("");
-                const dataDevice = await CheerpX.DataDevice.create();
 
-                const cx = await CheerpX.Linux.create({
+                cx = await CheerpX.Linux.create({
                     mounts: [
                         { type: "ext2", path: "/", dev: overlayDevice },
-                        { type: "dir", path: "/app", dev: webDevice },
-                        { type: "dir", path: "/data", dev: dataDevice },
                         { type: "devs", path: "/dev" },
-                    ],
+                        { type: "proc", path: "/proc" }
+                    ]
                 });
 
-                cx.setConsole(document.getElementById('console'));
-                await cx.run('/bin/bash', ['-i']);
+                // Configurar salida gráfica
+                cx.setKmsCanvas(canvas, 1280, 720);
+                
+                // Iniciar servidor gráfico
+                updateStatus('🖥 Starting Xorg server...');
+                await cx.run('/usr/bin/Xorg', ['-retro']);
+                
+                // Iniciar Firefox en modo kiosko
+                updateStatus('🌐 Launching Firefox...');
+                await cx.run('firefox', [
+                    '--kiosk',
+                    'about:blank',
+                    '--width=1280',
+                    '--height=720'
+                ]);
+
+                updateStatus('✅ Ready! Enter URL and press Go');
                 
             } catch (error) {
-                console.error('Error:', error);
+                updateStatus(`❌ Error: ${error.message}`, true);
+                console.error(error);
             }
         }
-        initCheerpX();
+
+        // Función de navegación
+        async function navigate() {
+            const url = document.getElementById('url').value;
+            if(!url) return;
+            
+            try {
+                updateStatus(`🌐 Navigating to ${url}...`);
+                await cx.run('firefox', ['--kiosk', url]);
+                updateStatus(`✅ Loaded: ${url}`);
+            } catch (error) {
+                updateStatus(`❌ Navigation failed: ${error.message}`, true);
+            }
+        }
+
+        // Capturar pantalla
+        async function takeScreenshot() {
+            try {
+                updateStatus('📸 Capturing screenshot...');
+                const screenshotData = await cx.readFile('/data/screenshot.png');
+                
+                const link = document.createElement('a');
+                link.download = `screenshot-${Date.now()}.png`;
+                link.href = URL.createObjectURL(new Blob([screenshotData]));
+                link.click();
+                
+                updateStatus('✅ Screenshot saved');
+            } catch (error) {
+                updateStatus('❌ Screenshot failed', true);
+            }
+        }
+
+        // Resetear navegador
+        async function resetBrowser() {
+            try {
+                updateStatus('🔄 Restarting browser...');
+                await cx.run('pkill', ['firefox']);
+                await cx.run('firefox', ['--kiosk', 'about:blank']);
+                updateStatus('✅ Browser reset');
+            } catch (error) {
+                updateStatus('❌ Reset failed', true);
+            }
+        }
+
+        // Actualizar estado
+        function updateStatus(message, isError = false) {
+            const statusElem = document.getElementById('status');
+            statusElem.textContent = message;
+            statusElem.style.color = isError ? '#ff4444' : '#44ff44';
+        }
+
+        // Inicialización automática
+        window.addEventListener('load', initCheerpX);
+
+        // Manejar tecla Enter en la URL
+        document.getElementById('url').addEventListener('keypress', (e) => {
+            if(e.key === 'Enter') navigate();
+        });
     </script>
 </body>
 </html>
